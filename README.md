@@ -2,6 +2,10 @@
 
 七个虚拟工作日，12 位成年虚构联系人，21 个决策事项。通过聊天、朋友圈、点赞、评论、虚拟红包和转账，处理澄屿科技新品“拾光一号”的发布危机。
 
+手机在线试玩：<https://zhangjie2759.github.io/GAME-004-playtest/>
+
+公开仓库：<https://github.com/zhangjie2759/GAME-004-playtest>
+
 ## 本地运行
 
 需要 Node.js 20 或更新版本，无需安装依赖。在本目录执行：
