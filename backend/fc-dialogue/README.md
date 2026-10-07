@@ -7,3 +7,5 @@
 当前公网地址为 `https://game-dialogue-mosiwwjfts.cn-beijing.fcapp.run/v1/dialogue`。触发器采用无需认证模式供静态 H5 调用；后端仍会校验精确 Origin、请求结构、允许意图、输出结构和调用频率。
 
 API Key 只能填入函数计算的环境变量或 KMS，不得写入本目录、前端或 GitHub。CORS 与实例内限流仅适合个人试玩；扩大公开测试前应增加服务端会话鉴权或验证码，并设置百炼预算/用完即停。
+
+自由聊天属于短对话场景，请求显式设置 `enable_thinking:false`，避免把时间和 Token 花在不必要的深度推理上。钱包、剧情和关系仍由前端规则层确认。

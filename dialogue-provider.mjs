@@ -26,8 +26,8 @@ export function buildDialogueContext(state,contactId,moneyDraft=null,userMessage
     publicState:{day:state.day,company:scenario.company,project:scenario.project,dayTitle:scenario.days[state.day-1]},
     publicMemories:state.memories.filter(m=>m.contactId===contactId).slice(-6).map(m=>({day:m.day,tone:m.tone,summary:m.summary})),
     pendingIncoming:state.transactions.filter(t=>t.source==='incoming'&&t.status==='pending'&&t.contactId===contactId).map(t=>({transactionId:t.id,mode:t.mode,amountCents:t.amountCents,note:t.note})),
-    recentMessages:state.messages.filter(m=>m.contact===contactId).slice(-12).map(m=>({from:m.from,day:m.day,text:m.text})),
-    recentFeed:state.feed.filter(p=>p.author===contactId).slice(0,4).map(p=>({day:p.day,text:p.text})),
+    recentMessages:state.messages.filter(m=>m.contact===contactId).slice(-8).map(m=>({from:m.from,day:m.day,text:clean(m.text).slice(0,180)})),
+    recentFeed:state.feed.filter(p=>p.author===contactId).slice(0,2).map(p=>({day:p.day,text:clean(p.text).slice(0,140)})),
     event:event?{id:event.id,topic:event.topic,lines:scripted.opening(event,state),choices:event.choices.map(c=>({id:c.id,text:c.text}))}:null,
     allowedIntents:allowedIntents.map((intent,index)=>({id:`intent-${index+1}`,action:intent}))
   };

@@ -121,7 +121,7 @@ def dialogue(path):
         key = os.getenv("DASHSCOPE_API_KEY")
         if not key:
             raise ValueError("server_not_configured")
-        payload = json.dumps({"model": os.getenv("QWEN_MODEL", "qwen3.7-plus"), "messages": model_messages(context), "temperature": 0.65, "max_tokens": 320, "response_format": {"type": "json_object"}}, ensure_ascii=False).encode("utf-8")
+        payload = json.dumps({"model": os.getenv("QWEN_MODEL", "qwen3.7-plus"), "messages": model_messages(context), "enable_thinking": False, "temperature": 0.65, "max_tokens": 180, "response_format": {"type": "json_object"}}, ensure_ascii=False).encode("utf-8")
         upstream_request = urllib.request.Request(f"{BASE_URL}/chat/completions", data=payload, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, method="POST")
         # Older deployments used 18 seconds; allow slow, more human-like Qwen turns to finish.
         model_timeout = max(28.0, float(os.getenv("MODEL_TIMEOUT_SECONDS", "28")))
