@@ -6,7 +6,9 @@
 
 浏览器只调用你自己的 HTTPS 服务，不直接连接百炼，也不保存模型密钥。服务端把密钥放入环境变量或云平台 Secret，调用对应地域的模型 API；公开仓库和浏览器代码里不能出现密钥。先在百炼控制台确认地域和免费额度，再决定模型及服务部署地址。
 
-前端开关位于 `ai-config.mjs`：将 `enabled` 设为 `true`，并把 `dialogueEndpoint` 设置为自有服务的完整 HTTPS 地址。部署时同步将 `index.html` 的 CSP `connect-src` 从 `'none'` 改为仅允许该精确服务域名。静态 GitHub Pages 无法自行保管密钥或提供这个服务。
+前端开关位于 `ai-config.mjs`。当前试玩版已连接北京区域的阿里云函数计算代理，`index.html` 的 CSP `connect-src` 仅允许该精确服务域名。千问 API Key 只保存在函数环境变量 `DASHSCOPE_API_KEY` 中，静态 GitHub Pages 和本仓库均不保存密钥。
+
+部署端点：`https://game-dialogue-mosiwwjfts.cn-beijing.fcapp.run/v1/dialogue`
 
 `remote-dialogue-client.mjs` 通过 POST 把 `buildDialogueContext(state, contactId, null, userMessage)` 的 JSON 发给服务端，且不携带浏览器凭据。服务端应验证来源、限制频率和请求大小，并实现会话验证；不能相信浏览器传来的游戏状态来记账。`requestDialogue()` 在超时、网络错误和无效结构时使用本地角色回复。用户取消时应立即停止等待。
 
