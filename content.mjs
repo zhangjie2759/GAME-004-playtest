@@ -531,11 +531,15 @@ export class ScriptedContentProvider {
   dayBrief(state) {
     const scenario=scenarioFor(state.routeId);
     if(state.routeId==='chairman'){
-      if(state.day===1) return '早上好。距离拾光一号发布还有七个工作日。总经理正在等您定方向，市场和产品随后会来同步。点开有红点的会话即可处理；今天忙完，来我这里说一声。';
-      return `${scenario.days[state.day-1]}。${state.company.team<35 ? '今天群里明显安静了一些，几位同事把意见改成了“收到”。' : '今天大家还在主动报进展，有问题也愿意先拿出来说。'}${state.company.reputation<40?'外面的讨论有些尖锐，我把相关信息交给了市场。':'昨晚的外部反馈已经交给市场整理。'}先看新消息吧。`;
+      if(state.day===1) return '早上好。新品七天后发布，今天先定方向。点开红点消息，处理完再来找我。';
+      const team=state.company.team<35?'团队今天有点沉默。':'团队还愿意主动报问题。';
+      const publicVoice=state.company.reputation<40?'外面的质疑变多了。':'外部反馈已整理。';
+      return `${scenario.days[state.day-1]}。${team}${publicVoice}先看新消息。`;
     }
-    if(state.day===1)return '早。宏远建材项目突然要提前验收，直属领导、客户和开发给了三种说法。别急着证明谁是坏人，先把原话和时间留下来。点开有红点的会话，今天处理完再来我这里下班。';
-    return `${scenario.days[state.day-1]}。${state.company.evidence<35?'目前几个关键环节还只有口头说法，不要等到会上才补回忆。':'原始记录正在串成时间线，但每份材料都还要核对来源。'}${state.company.allies<35?'同事们开始只在私聊里说话，他们也在看你会不会保护提供记录的人。':'还有人愿意帮你对时间和版本。'}先看新消息吧。`;
+    if(state.day===1)return '早。客户突然提前验收，领导想把责任推给你。先留好原话和时间，再点开红点消息。';
+    const proof=state.company.evidence<35?'关键环节还缺记录。':'证据正在串成时间线。';
+    const allies=state.company.allies<35?'同事们变谨慎了。':'还有同事愿意帮你。';
+    return `${scenario.days[state.day-1]}。${proof}${allies}先看新消息。`;
   }
   followUps(ev,ch,state){
     if(state.routeId==='chairman'&&(ev.id==='d2-team'||ev.id==='d5-staff'))return [{contact:'engineer',text:ch.id==='a'?'听人事说可以轮休了。谢谢您，我今晚把交接写清楚，明天接着做。':'人事的安排收到了。我先把这轮测试跑完。'}];

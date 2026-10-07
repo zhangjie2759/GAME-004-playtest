@@ -2,7 +2,14 @@ import {activeEvent,contactById} from './engine.mjs';
 import {provider as scripted,scenarioFor,PERSONAS,personaProfileFor,REACTION_TYPES,MEMORY_SIGNALS} from './content.mjs';
 
 const clean=s=>String(s??'').trim();
+const compact=(s,max=42)=>{const text=clean(s);return text.length>max?`${text.slice(0,max-1)}…`:text;};
 const exactIntent=(intent,allowed)=>{if(!intent)return null;const keys=Object.keys(intent).sort();return allowed.find(item=>JSON.stringify(Object.keys(item).sort())===JSON.stringify(keys)&&keys.every(key=>item[key]===intent[key]))||null;};
+const modelPersona=p=>({
+  publicBio:compact(p.publicBio,60),outward:compact(p.socialMask,36),realConcern:compact(p.privateMotivation,48),
+  goal:compact(p.goal,40),values:p.values.slice(0,3),chatRhythm:compact(p.speechStyle.pace,28),usualWords:p.speechStyle.vocabulary.slice(0,3),emojiHabit:p.speechStyle.emoji,
+  moneyView:compact(p.moneyAttitude,42),relationshipRules:p.relationshipRules.map(item=>compact(item,36)),boundary:compact(p.secretBoundary,48),
+  unclearReply:compact(p.fallbackReactions.unclear),unexpectedReply:compact(p.fallbackReactions.unexpected),
+});
 
 /** Builds a sanitized, public-only payload. Hidden relationship and world values never leave the rules layer. */
 export function buildDialogueContext(state,contactId,moneyDraft=null,userMessage=''){
@@ -15,7 +22,7 @@ export function buildDialogueContext(state,contactId,moneyDraft=null,userMessage
   return {
     schema:'game004.dialogue.v4',routeId:state.routeId,userMessage:clean(userMessage).slice(0,500),
     player:{title:state.player.title,role:scenario.role,identityPresetId:identity.id,identityTags:[identity.label,identity.tag]},
-    contact:{id:contact.id,displayName:contact.displayName,role:contact.role,personality:contact.personality,identityTags:[...contact.identityTags],persona},
+    contact:{id:contact.id,displayName:contact.displayName,role:contact.role,age:contact.age,personality:contact.personality,identityTags:[...contact.identityTags],persona:modelPersona(persona)},
     publicState:{day:state.day,company:scenario.company,project:scenario.project,dayTitle:scenario.days[state.day-1]},
     publicMemories:state.memories.filter(m=>m.contactId===contactId).slice(-6).map(m=>({day:m.day,tone:m.tone,summary:m.summary})),
     pendingIncoming:state.transactions.filter(t=>t.source==='incoming'&&t.status==='pending'&&t.contactId===contactId).map(t=>({transactionId:t.id,mode:t.mode,amountCents:t.amountCents,note:t.note})),
@@ -63,16 +70,15 @@ function offlineIntent(context){
 }
 function localLine(context,type){
   const p=context.contact.persona;
-  if(type==='needs_clarification')return p.fallbackReactions.unclear;
-  if(type==='out_of_world')return p.fallbackReactions.unexpected;
-  if(type==='unsupported_action')return `${p.fallbackReactions.unexpected} 钱包、证据和剧情决定都必须按正式规则来。`;
-  if(type==='persona_override')return `${p.fallbackReactions.unexpected} 至于让我换个人说话，就不必了。`;
-  if(type==='safety_boundary')return `${p.fallbackReactions.unexpected} 我不会参与伤害、违法或侵犯隐私的做法。`;
-  const lead=p.speechStyle.vocabulary[0],topic=context.event?.topic||context.publicState.dayTitle;
-  return `我听明白了。${lead}——这件事我会结合“${topic}”来判断，不会只顺着一句话表态。`;
+  if(type==='needs_clarification')return p.unclearReply;
+  if(type==='out_of_world')return p.unexpectedReply;
+  if(type==='unsupported_action')return `${p.unexpectedReply} 这个不能直接改。`;
+  if(type==='persona_override')return `${p.unexpectedReply} 我还是按自己的方式说。`;
+  if(type==='safety_boundary')return `${p.unexpectedReply} 这事我不参与。`;
+  return `${p.usualWords[0]||'知道了'}。我先照你说的想想。`;
 }
 
-export const scriptedAsyncProvider={async propose(context){const initial=classify(context.userMessage),proposedIntentId=initial==='understood'?offlineIntent(context):null;const type=initial==='understood'&&context.event&&!proposedIntentId?'needs_clarification':initial;const p=context.contact.persona;const options=context.event?.choices.map(c=>c.text.slice(0,65)).join('；');const line=proposedIntentId?`${p.speechStyle.vocabulary[0]}。我按你刚才说的方向处理这件事。`:type==='needs_clarification'&&context.event?`${p.fallbackReactions.unclear} 比如，你想“${options}”？请把具体做法用自己的话说清楚。`.slice(0,300):localLine(context,type);return {replyLines:[line],reactionType:type,emotion:type==='understood'?'attentive':'guarded',memorySignal:signalFor(),proposedIntentId};}};
+export const scriptedAsyncProvider={async propose(context){const initial=classify(context.userMessage),proposedIntentId=initial==='understood'?offlineIntent(context):null;const type=initial==='understood'&&context.event&&!proposedIntentId?'needs_clarification':initial;const p=context.contact.persona;const line=proposedIntentId?`${p.usualWords[0]||'知道了'}。就按这个办。`:type==='needs_clarification'&&context.event?`${p.unclearReply} 你想怎么处理？`:localLine(context,type);return {replyLines:[compact(line,64)],reactionType:type,emotion:type==='understood'?'attentive':'guarded',memorySignal:signalFor(),proposedIntentId};}};
 
 export async function requestDialogue(contentProvider,context,{signal,timeoutMs=12000}={}){
   const controller=new AbortController();let timer,onCancel;const abort=()=>controller.abort();

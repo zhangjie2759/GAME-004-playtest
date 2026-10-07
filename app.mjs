@@ -69,7 +69,7 @@ async function sendFreeMessage(contactId,text){
     const stale=game.routeId!==snapshot.routeId||game.day!==snapshot.day||game.sequence!==snapshot.sequence||(activeEvent(game)?.id||null)!==snapshot.eventId;
     if(stale){notify('聊天状态已经变化，这条迟到的回复没有写入存档。');return;}
     const accepted=commit({type:'SEND_FREE_MESSAGE',contactId,text,requestId,reply:{...reply,fallback:reply.fallback||!AI_CONFIG.enabled}},{bottom:true});
-    if(accepted&&reply.fallback&&AI_CONFIG.enabled)notify('AI暂时不可用，已使用该角色的本地回应。');
+    if(accepted&&reply.fallback&&AI_CONFIG.enabled)notify('网络较慢或模型正忙，已用本地角色回复。');
     const chosen=reply.intent?.type==='CHOOSE'&&context.event?.id===reply.intent.eventId?context.event.choices.find(c=>c.id===reply.intent.choiceId):null;
     if(accepted&&chosen){const ev=activeEvent(game),story=ev?.id===context.event.id?ev.choices.find(c=>c.id===chosen.id):null;
       if(story?.kind)showDialoguePayment(requestId,ev,story);
@@ -184,7 +184,7 @@ function handle(action,el){
   } else if(action==='profile-chat'){closeDialog();openChat(el.dataset.id);}
   else if(action==='ending'){if(game.ending){view='ending';render();document.querySelector('#scroll').scrollTop=0;}else notify('七日结束后，会收到属于您的回信。');}
   else if(action==='settings')showDialog(`<h2>设置</h2><div class="settings-list"><button data-action="about">关于测试版 ${icon('chevron',16)}</button><button data-action="replay">重新开始七天 ${icon('chevron',16)}</button><button class="danger" data-action="erase">永久清除本地进度 ${icon('chevron',16)}</button></div><button class="plain-button" data-action="close">关闭</button>`);
-  else if(action==='about')showDialog('<h2>虚拟人生 · 关系回响测试</h2><p>董事长处理新品发布危机，牛马通过工作记录完成职场翻盘。两条路线各有七天、27个事项和不同结局。</p><p>人物会记住前几天的承诺、朋友圈互动和红包边界。玩家与NPC都能发送虚构红包；领取、退还、转账和钱包只在故事内生效。本项目并非微信官方产品。</p><p>进度保存在当前浏览器。真实 AI 尚待国内后端配置；当前是离线演示，关闭页面期间故事不会推进。</p><button class="plain-button" data-action="close">知道了</button>');
+  else if(action==='about')showDialog('<h2>虚拟人生 · 关系回响测试</h2><p>董事长处理新品发布危机，牛马通过工作记录完成职场翻盘。两条路线各有七天和不同结局。</p><p>人物会记住承诺、朋友圈互动和红包边界。红包、转账和钱包均为虚构测试。</p><p>自由聊天已连接国内千问模型。网络慢或模型繁忙时会自动使用角色本地回复，不会影响继续游玩。进度只保存在当前浏览器。</p><button class="plain-button" data-action="close">知道了</button>');
   else if(action==='replay'||action==='erase')showDialog(`<h2>${action==='replay'?'重新开始？':'永久清除进度？'}</h2><p>这会删除此浏览器里的聊天、动态、虚拟收支和故事选择。其他网站的数据不受影响，操作无法撤销。</p><button class="danger-button" data-action="erase-confirm" data-restart="${action==='replay'}">${action==='replay'?'清除并重新开始':'永久清除'}</button>${buttonsCancel()}`);
   else if(action==='erase-confirm'){const error=clearGame(storage);if(error){notify(error);return;}blocked=false;started=false;setupStep=1;setupRoute='chairman';setupPersona='tycoon';setupTitle='';paymentDraft=null;game=createGame();thread=null;view=tab='messages';closeDialog();render();setup('已清除旧进度。填写称呼后开始新的一周。');}
   else if(action==='services')go('services');

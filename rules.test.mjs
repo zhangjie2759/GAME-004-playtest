@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {access,readFile} from 'node:fs/promises';
 import {SCENARIOS,PERSONAS,createContacts,provider,allPersonaFixtures} from './content.mjs';
 import {buildDialogueContext,validateDialogueProposal,requestDialogue,scriptedAsyncProvider} from './dialogue-provider.mjs';
+import {createRemoteDialogueClient} from './remote-dialogue-client.mjs';
 import {createGame,dispatch,activeEvent,endingFor,saveGame,loadGame,clearGame,SAVE_KEY,SAVE_VERSION,OPENING_BALANCE_CENTS,parseAmountCents} from './engine.mjs';
 
 const storage=()=>{const data=new Map();return {getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};};
@@ -21,6 +22,23 @@ test('async API seam excludes hidden state and rejects unauthorized money intent
   assert.equal((await requestDialogue({propose(){return new Promise(()=>{});}},context,{timeoutMs:10})).fallback,true);
   const cancelled=new AbortController(),stalled=requestDialogue({propose(){return new Promise(()=>{});}},context,{signal:cancelled.signal,timeoutMs:1000});cancelled.abort();await assert.rejects(stalled,{name:'AbortError'});
   const snapshot=JSON.stringify(s);await requestDialogue(scriptedAsyncProvider,context);assert.equal(JSON.stringify(s),snapshot);
+});
+test('AI context is compact and remote client retries only transient failures',async()=>{
+  const state=createGame({routeId:'worker',identityPresetId:'worker'}),context=buildDialogueContext(state,'coworker',null,'先说重点');
+  assert.ok(context.contact.persona.usualWords.length<=3);
+  assert.ok(context.contact.persona.relationshipRules.every(item=>item.length<=36));
+  assert.equal(context.contact.persona.privateMotivation,undefined);
+  assert.equal(context.contact.persona.fallbackReactions,undefined);
+  const valid={replyLines:['先截图，别急。'],reactionType:'understood',emotion:'guarded',memorySignal:'none',proposedIntentId:null};
+  const originalFetch=globalThis.fetch;let calls=0;
+  try{
+    globalThis.fetch=async()=>++calls===1?new Response('{}',{status:502}):new Response(JSON.stringify(valid),{status:200,headers:{'Content-Type':'application/json'}});
+    const result=await createRemoteDialogueClient({dialogueEndpoint:'https://example.test/v1/dialogue',retryDelayMs:0}).propose(context);
+    assert.equal(calls,2);assert.deepEqual(result.replyLines,valid.replyLines);
+    calls=0;globalThis.fetch=async()=>{calls++;return new Response('{}',{status:400});};
+    await assert.rejects(()=>createRemoteDialogueClient({dialogueEndpoint:'https://example.test/v1/dialogue',retryDelayMs:0}).propose(context),/400/);
+    assert.equal(calls,1);
+  } finally {globalThis.fetch=originalFetch;}
 });
 test('typed dialogue advances only a clear active story intent and survives reload',async()=>{
   for(const routeId of ['chairman','worker']){
