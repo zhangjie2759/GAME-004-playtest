@@ -1,7 +1,7 @@
-import {PERSONAS,createContacts,provider,scenarioFor} from './content.mjs';
+import {PERSONAS,createContacts,provider,scenarioFor,historicalFeedSeeds,echoFeedSeeds,REACTION_TYPES,MEMORY_SIGNALS} from './content.mjs';
 
 export const SAVE_KEY='game004.chairman.v1';
-export const SAVE_VERSION=5;
+export const SAVE_VERSION=6;
 export const OPENING_BALANCE_CENTS=8888888888;
 export const MAX_PACKET_CENTS=20000;
 export const MAX_TRANSFER_CENTS=20000000;
@@ -25,7 +25,7 @@ export function parseAmountCents(value){
 /** @typedef {{id:string,day:number,contact:string,topic:string,lines:string[],choices:ReplyChoice[]}} ScenarioEvent */
 /** @typedef {{id:string,text:string,reply:string,effects:object,kind?:'packet'|'transfer',amount?:number,direction?:'debit'|'credit'}} ReplyChoice */
 /** @typedef {{id:string,author:string,text:string,day:number,liked:boolean,comments:object[]}} FeedItem */
-/** @typedef {{id:string,contactId:string,sourceType:'choice'|'money'|'social',sourceId:string,day:number,tone:'kept'|'hurt'|'noted',summary:string}} RelationshipMemory */
+/** @typedef {{id:string,contactId:string,sourceType:'choice'|'money'|'social'|'ai',sourceId:string,day:number,tone:'kept'|'hurt'|'noted',summary:string}} RelationshipMemory */
 /** @typedef {{id:string,day:number,contact:string,echo:true,resolveLines:(state:object)=>string[],incomingPacket?:object}} ScenarioEcho */
 /** @typedef {{id:string,transactionId:string,day:number,direction:'debit'|'credit',amountCents:number,mode:string,source:string,purpose:string,contactId:string,status:string,linkedEntryId?:string}} LedgerEntry */
 
@@ -73,10 +73,14 @@ function activate(s){
 }
 
 function seedLikes(scenario,index){return index===0?scenario.feedLikeIds.slice(0,2):scenario.feedLikeIds.slice(2,3);}
+function personaLikes(s,author,index){const ids=s.contacts.map(c=>c.id).filter(id=>id!==author),start=(index*3+Math.abs(s.seed|0))%ids.length;return [ids[start],ids[(start+5)%ids.length]];}
+function historicalPosts(s){return historicalFeedSeeds(s.routeId).map((item,index)=>({id:`history-${s.routeId}-${item.author}-${item.index}`,kind:'history',day:0,author:item.author,text:item.text,art:item.art,liked:false,commented:false,comments:[],likes:personaLikes(s,item.author,index),time:['6天前','4天前','2天前'][item.index]}));}
+function echoPostsForDay(s){return echoFeedSeeds(s.routeId,s.day).map((item,index)=>({id:`persona-${s.routeId}-${s.day}-${item.author}`,kind:'persona-echo',day:s.day,author:item.author,text:item.text,art:item.art,liked:false,commented:false,comments:[],likes:personaLikes(s,item.author,s.day*5+index),time:index?'12:18':'10:26'}));}
 function enterDay(s){
   const scenario=scenarioOf(s);
   message(s,scenario.guideId,provider.dayBrief(s));
   scenario.feedSeeds[s.day-1].forEach(([author,text,art],i)=>s.feed.unshift({id:`f${s.day}-${i}`,day:s.day,author,text,art,liked:false,commented:false,comments:[],likes:seedLikes(scenario,i),time:i===0?'08:32':'08:46'}));
+  echoPostsForDay(s).forEach(post=>s.feed.unshift(post));
   activate(s);
 }
 
@@ -88,7 +92,7 @@ export function createGame(options={},legacySeed=4107,legacyPersona='tycoon'){
   const fallback=profile.defaultTitle,title=String(options.title??fallback).trim().slice(0,12)||fallback;
   const contacts=createContacts(seed,routeId);
   const s={version:SAVE_VERSION,routeId,seed,day:1,player:{title,identityPresetId:profile.id},company:clone(profile.starts),wallet:{openingBalanceCents:profile.openingBalanceCents,balanceCents:profile.openingBalanceCents,cards:8},
-    contacts,relationships:Object.fromEntries(contacts.map(c=>[c.id,{trust:55,respect:55,tension:15}])),messages:[],feed:[],ledger:[],transactions:[],decisions:{},flags:{},evidenceItems:[],memories:[],skippedEchoes:[],echoMigrationThroughDay:0,read:{},sequence:0,transactionSequence:0,processedActionIds:[],ending:null,postsByDay:{},feedSeenDay:0};
+    contacts,relationships:Object.fromEntries(contacts.map(c=>[c.id,{trust:55,respect:55,tension:15}])),messages:[],feed:[],ledger:[],transactions:[],decisions:{},flags:{},evidenceItems:[],memories:[],skippedEchoes:[],echoMigrationThroughDay:0,read:{},sequence:0,transactionSequence:0,processedActionIds:[],processedDialogueIds:[],aiInteractions:[],ending:null,postsByDay:{},feedSeenDay:0};
   const chairmanOpenings={handsome:'今天媒体对您的关注甚至早于产品。镜头能带来声量，也会把每次犹豫放大。',tycoon:'专项账户已经备好。钱可以让事情更快，但这周真正难买的是时间和信任。',richwoman:'您上任后第一次亲自盯发布，外界评价不错。团队也在看，您的承诺能不能落到细节。',selfmade:'从一线走到这间办公室，大家愿意跟您说实话。但董事会仍在等一份能证明您的结果。'};
   const workerOpenings={'worker-handsome':'这周新客户群里很多人先记住了你的头像。被看见是优势，但证据不能靠印象。',worker:'你没有可以替你改写结论的背景。好在文档、日志和时间戳不认职级。','hidden-tycoon':'你的账户余额足够让你随时离开，但今天你还坐在这里，因为你想看这套规则能不能被事实改变。','hidden-richwoman':'你不需要靠这份工资过日子。但如果今天不把事说清，下一个人还会坐在同一个位置。'};
   contacts.forEach(c=>{
@@ -97,7 +101,7 @@ export function createGame(options={},legacySeed=4107,legacyPersona='tycoon'){
     if(routeId==='worker'&&c.id==='manager')greeting=`${title}，宏远项目今天起由你盯到底。我只看结果，别什么事都等我确认。`;
     message(s,c.id,greeting,{greeting:true});
   });
-  contacts.forEach(c=>s.read[c.id]=s.sequence);enterDay(s);return s;
+  contacts.forEach(c=>s.read[c.id]=s.sequence);s.feed=historicalPosts(s);enterDay(s);return s;
 }
 
 function endingChairman(s){
@@ -146,13 +150,45 @@ function settleIncomingMoney(s,action){
   remember(s,{id:`money:${tx.id}`,contactId:tx.contactId,sourceType:'money',sourceId:tx.id,tone:decision==='claim'&&(tx.contactId==='manager'||tx.contactId==='partner')?'hurt':'kept',summary:decision==='claim'?`你领取了${contactById(s,tx.contactId).displayName}发来的红包。`:`你退还了${contactById(s,tx.contactId).displayName}发来的红包。`});return null;
 }
 
+function applyStoryChoice(s,ev,ch,{messageAlreadySent=false}={}){
+  if(!messageAlreadySent)message(s,ev.contact,ch.text,{from:'me'});
+  const paymentError=addStoryTransaction(s,ev,ch);if(paymentError)return paymentError;
+  effects(s,ev.contact,ch.effects.company,ch.effects.relation);s.decisions[ev.id]=ch.id;
+  if(ch.flag)s.flags[ev.id]=ch.flag;if(ch.evidence&&!s.evidenceItems.includes(ch.evidence))s.evidenceItems.push(ch.evidence);
+  remember(s,{id:`choice:${ev.id}`,contactId:ev.contact,sourceType:'choice',sourceId:ev.id,tone:memoryTone(ch.effects.relation),summary:ch.memory||`${ev.topic}：${ch.text}`});
+  provider.response(ev,ch,s).forEach(t=>message(s,ev.contact,t));provider.followUps(ev,ch,s).forEach(item=>message(s,item.contact,item.text));activate(s);return null;
+}
+function sendFreeMessage(s,action){
+  const contact=contactById(s,action.contactId),requestId=String(action.requestId||''),text=String(action.text||'').trim(),reply=action.reply;
+  if(!contact)return '联系人不存在。';if(!/^[a-zA-Z0-9._:-]{8,80}$/.test(requestId)||s.processedDialogueIds.includes(requestId))return '这条消息已经处理或编号无效。';
+  if(!text||text.length>500)return '消息需在1–500个字之间。';if(!reply||!Array.isArray(reply.replyLines)||reply.replyLines.length<1||reply.replyLines.length>4||reply.replyLines.some(line=>typeof line!=='string'||!line.trim()||line.length>300))return '角色回复格式无效。';
+  if(!REACTION_TYPES.includes(reply.reactionType)||!MEMORY_SIGNALS.includes(reply.memorySignal)||typeof reply.emotion!=='string'||reply.emotion.length>24)return '角色反应类型无效。';
+  message(s,contact.id,text,{from:'me',source:'player-free',requestId});
+  reply.replyLines.forEach(line=>message(s,contact.id,line.trim(),{source:reply.fallback?'local-fallback':'ai',requestId,reactionType:reply.reactionType,emotion:reply.emotion}));
+  const ev=activeEvent(s),intentIndex=typeof reply.proposedIntentId==='string'?Number(reply.proposedIntentId.replace(/^intent-/,''))-1:-1;
+  if(reply.proposedIntentId!==null&&reply.proposedIntentId!==undefined&&(!ev||ev.contact!==contact.id||!/^intent-[1-9]\d*$/.test(reply.proposedIntentId)||!ev.choices[intentIndex]))return '剧情意图已经过期。';
+  const choice=intentIndex>=0?ev.choices[intentIndex]:null;
+  // Dialogue suggestions are recorded for context. Only a confirmed story or
+  // transaction action may change relationships, evidence, money or endings.
+  const memoryApplied=false;
+  s.processedDialogueIds.push(requestId);s.aiInteractions.push({requestId,contactId:contact.id,day:s.day,reactionType:reply.reactionType,emotion:reply.emotion,memorySignal:reply.memorySignal,memoryApplied,fallback:Boolean(reply.fallback),intentEventId:choice?ev.id:null,intentChoiceId:choice?choice.id:null});
+  return choice&&!choice.kind?applyStoryChoice(s,ev,choice,{messageAlreadySent:true}):null;
+}
+
 /** The sole public state mutation boundary. Input never accepts caller-supplied effects. */
 export function dispatch(state,action){
   if(!state||!action||typeof action.type!=='string')return {state,error:'无法识别这次操作。'};const s=clone(state),scenario=scenarioOf(s),fail=error=>({state,error});if(s.ending&&!['READ','FEED_READ'].includes(action.type))return fail('这一周已经结束。可以继续查看记录，或重新开始。');
   if(action.type==='CHOOSE'){
-    const ev=activeEvent(s);if(!ev||ev.id!==action.eventId)return fail('这件事已经处理，或还没有轮到它。');const ch=ev.choices.find(c=>c.id===action.choiceId);if(!ch)return fail('请选择当前提供的回复。');message(s,ev.contact,ch.text,{from:'me'});const paymentError=addStoryTransaction(s,ev,ch);if(paymentError)return fail(paymentError);effects(s,ev.contact,ch.effects.company,ch.effects.relation);s.decisions[ev.id]=ch.id;if(ch.flag)s.flags[ev.id]=ch.flag;if(ch.evidence&&!s.evidenceItems.includes(ch.evidence))s.evidenceItems.push(ch.evidence);remember(s,{id:`choice:${ev.id}`,contactId:ev.contact,sourceType:'choice',sourceId:ev.id,tone:memoryTone(ch.effects.relation),summary:ch.memory||`${ev.topic}：${ch.text}`});provider.response(ev,ch,s).forEach(t=>message(s,ev.contact,t));provider.followUps(ev,ch,s).forEach(item=>message(s,item.contact,item.text));activate(s);
+    const ev=activeEvent(s);if(!ev||ev.id!==action.eventId)return fail('这件事已经处理，或还没有轮到它。');const ch=ev.choices.find(c=>c.id===action.choiceId);if(!ch)return fail('请选择当前提供的回复。');const error=applyStoryChoice(s,ev,ch);if(error)return fail(error);
+  }else if(action.type==='RESOLVE_DIALOGUE_INTENT'){
+    const ev=activeEvent(s),item=s.aiInteractions.find(i=>i.requestId===action.requestId);
+    const latest=s.aiInteractions.findLast(i=>i.intentEventId===ev?.id&&i.contactId===ev?.contact&&i.day===s.day);
+    if(!ev||!item||latest?.requestId!==item.requestId||item.intentEventId!==ev.id||item.intentChoiceId!==action.choiceId||item.contactId!==ev.contact||item.day!==s.day)return fail('这条对话意图已经过期。');
+    const ch=ev.choices.find(c=>c.id===item.intentChoiceId);if(!ch?.kind)return fail('这笔剧情交易无法确认。');
+    const error=applyStoryChoice(s,ev,ch,{messageAlreadySent:true});if(error)return fail(error);
   }else if(action.type==='SEND_MONEY'){const error=sendMoney(s,action);if(error)return fail(error);}
   else if(action.type==='SETTLE_INCOMING_MONEY'){const error=settleIncomingMoney(s,action);if(error)return fail(error);}
+  else if(action.type==='SEND_FREE_MESSAGE'){const error=sendFreeMessage(s,action);if(error)return fail(error);}
   else if(action.type==='READ'){if(!contactById(s,action.contactId))return fail('联系人不存在。');s.read[action.contactId]=s.sequence;}
   else if(action.type==='FEED_READ')s.feedSeenDay=s.day;
   else if(action.type==='LIKE'){const post=s.feed.find(p=>p.id===action.postId);if(!post||post.author==='me')return fail('这条动态不可点赞。');post.liked=!post.liked;if(post.liked&&!post.likeRewarded){effects(s,post.author,{[s.routeId==='worker'?'allies':'team']:1},{trust:1});post.likeRewarded=true;remember(s,{id:`social:like:${post.id}`,contactId:post.author,sourceType:'social',sourceId:post.id,tone:'noted',summary:`你给${contactById(s,post.author).displayName}的动态点了赞。`});}}
@@ -165,7 +201,7 @@ export function dispatch(state,action){
 
 export function saveGame(storage,state){try{storage.setItem(SAVE_KEY,JSON.stringify(state));return null;}catch{return '浏览器无法保存。请勿关闭页面，或换普通浏览模式后重试。';}}
 export function clearGame(storage){try{storage.removeItem(SAVE_KEY);return null;}catch{return '浏览器拒绝清除，请在浏览器设置中删除本站数据。';}}
-export function loadGame(storage){let raw;try{raw=storage.getItem(SAVE_KEY);}catch{return {state:null,error:'浏览器不允许读取存档，可继续临时试玩。',blocked:false};}if(!raw)return {state:null,error:null};try{let s=JSON.parse(raw);if(s.version===1)s=migrateV1(s);if(s.version===2)s=migrateV2(s);if(s.version===3)s=migrateV3(s);if(s.version===4)s=migrateV4(s);if(s.version!==SAVE_VERSION)throw new Error('存档版本暂不兼容');validateState(s);return {state:s,error:null};}catch(e){return {state:null,error:`${e.message||'无法读取存档'}。原数据尚未覆盖，请确认后清除并重开。`,blocked:true};}}
+export function loadGame(storage){let raw;try{raw=storage.getItem(SAVE_KEY);}catch{return {state:null,error:'浏览器不允许读取存档，可继续临时试玩。',blocked:false};}if(!raw)return {state:null,error:null};try{let s=JSON.parse(raw);if(s.version===1)s=migrateV1(s);if(s.version===2)s=migrateV2(s);if(s.version===3)s=migrateV3(s);if(s.version===4)s=migrateV4(s);if(s.version===5)s=migrateV5(s);if(s.version!==SAVE_VERSION)throw new Error('存档版本暂不兼容');validateState(s);return {state:s,error:null};}catch(e){return {state:null,error:`${e.message||'无法读取存档'}。原数据尚未覆盖，请确认后清除并重开。`,blocked:true};}}
 function migrateV1(old){const s=clone(old);if(!Array.isArray(s.ledger))throw new Error('旧存档流水无效');s.version=2;s.wallet={balanceCents:OPENING_BALANCE_CENTS-s.ledger.reduce((sum,l)=>sum+(Number.isSafeInteger(l.amount)&&l.amount>0?l.amount*100:0),0),cards:8};s.ledger=s.ledger.map(l=>({id:l.id,day:l.day,amountCents:l.amount*100,kind:l.kind,purpose:l.purpose,to:l.to,status:l.status}));if(s.company)delete s.company.cash;return s;}
 function migrateV2(old){const s=clone(old);s.version=3;s.migratingV2=true;s.player={...s.player,persona:s.player?.persona||'tycoon'};return s;}
 function migrateV3(old){
@@ -176,16 +212,22 @@ function migrateV3(old){
 
 function migrateV4(old){
   const s=clone(old),scenario=scenarioOf(s),hadEnding=Boolean(s.ending),currentDayHasProgress=scenario.events.some(e=>!e.echo&&e.day===s.day&&(Object.hasOwn(s.decisions||{},e.id)||s.messages?.some(m=>m.eventId===e.id)));
-  s.version=SAVE_VERSION;s.memories=[];
+  s.version=5;s.memories=[];
   for(const [eventId,choiceId] of Object.entries(s.decisions||{})){const ev=scenario.events.find(e=>e.id===eventId),ch=ev?.choices.find(c=>c.id===choiceId);if(ev&&ch)s.memories.push({id:`choice:${ev.id}`,contactId:ev.contact,sourceType:'choice',sourceId:ev.id,day:ev.day,tone:memoryTone(ch.effects.relation),summary:String(ch.memory||`${ev.topic}：${ch.text}`).slice(0,120)});}
   for(const tx of s.transactions||[])if(tx.source==='free')s.memories.push({id:`money:${tx.id}`,contactId:tx.contactId,sourceType:'money',sourceId:tx.id,day:tx.day,tone:tx.status==='refunded'?'hurt':'noted',summary:tx.status==='refunded'?`${contactById(s,tx.contactId).displayName}退还了你的${tx.mode==='packet'?'红包':'转账'}。`:`${contactById(s,tx.contactId).displayName}收下了你的${tx.mode==='packet'?'红包':'转账'}。`});
   s.echoMigrationThroughDay=Math.max(0,s.day-1+(currentDayHasProgress||hadEnding?1:0));s.skippedEchoes=scenario.events.filter(e=>e.echo&&e.day<=s.echoMigrationThroughDay).map(e=>e.id);
   if(hadEnding)s.ending=endingFor(s);return s;
 }
 
+function migrateV5(old){
+  const s=clone(old),expected=s.migratedFromVersion===3?legacyContactProfiles(s.seed):createContacts(s.seed,s.routeId);s.version=SAVE_VERSION;s.contacts=s.contacts.map((contact,index)=>({...contact,personaId:expected[index].personaId}));s.processedDialogueIds=[];s.aiInteractions=[];
+  const personal=[...historicalPosts(s)];for(let day=1;day<=s.day;day++){const original=s.day;s.day=day;personal.push(...echoPostsForDay(s));s.day=original;}
+  s.feed=[...s.feed,...personal.filter(post=>!s.feed.some(existing=>existing.id===post.id))];return s;
+}
+
 function validateState(s){
-  const scenario=scenarioFor(s.routeId),profile=identityFor(s.routeId,s.player?.identityPresetId);if(!['chairman','worker'].includes(s.routeId)||!Number.isInteger(s.day)||s.day<1||s.day>7||!profile||typeof s.player.title!=='string'||!s.player.title.trim()||s.player.title.length>12)throw new Error('存档信息不完整');if(!Number.isSafeInteger(s.seed)||!Array.isArray(s.contacts)||!Array.isArray(s.messages)||!Array.isArray(s.feed)||!Array.isArray(s.ledger)||!Array.isArray(s.transactions)||!Array.isArray(s.evidenceItems)||!Array.isArray(s.memories)||!Array.isArray(s.skippedEchoes)||!Array.isArray(s.processedActionIds)||!s.flags||!s.decisions||!s.read||!s.postsByDay||!s.relationships||!s.wallet)throw new Error('存档结构不完整');
-  const expected=s.migratedFromVersion===3?legacyContactProfiles(s.seed):createContacts(s.seed,s.routeId),ids=expected.map(c=>c.id),allowed=new Set([...ids,'me']),contactKeys=['id','displayName','legalName','name','role','age','tier','personality','moneyPolicy','color','avatar','image','company'];if(s.contacts.length!==expected.length||new Set(s.contacts.map(c=>c.id)).size!==expected.length||s.contacts.some((c,i)=>!expected[i]||contactKeys.some(k=>c[k]!==expected[i][k])||JSON.stringify(c.identityTags)!==JSON.stringify(expected[i].identityTags)))throw new Error('联系人数据无效');for(const id of ids)for(const key of ['trust','respect','tension'])if(!Number.isFinite(s.relationships[id]?.[key])||s.relationships[id][key]<0||s.relationships[id][key]>100)throw new Error('关系数据无效');for(const key of scenario.statKeys)if(!Number.isFinite(s.company?.[key])||s.company[key]<0||s.company[key]>100)throw new Error('状态数据无效');if(Object.keys(s.company).some(key=>!scenario.statKeys.includes(key)))throw new Error('状态字段无效');validateStoryPrefix(s,scenario);validateFlagsAndEvidence(s,scenario);validateMessages(s,scenario,ids);validateFeed(s,scenario,allowed);validateProgressMetadata(s,ids);validateMemories(s,scenario,ids);validateLedger(s,scenario,profile);if(s.ending!==null){if(s.day!==7||activeEvent(s)||pendingIncoming(s).length||JSON.stringify(s.ending)!==JSON.stringify(endingFor(s)))throw new Error('结局数据无效');}else if(s.day===7&&!activeEvent(s)&&s.messages.some(m=>m.text.includes('这一周的回信已经放在')))throw new Error('结局数据缺失');
+  const scenario=scenarioFor(s.routeId),profile=identityFor(s.routeId,s.player?.identityPresetId);if(!['chairman','worker'].includes(s.routeId)||!Number.isInteger(s.day)||s.day<1||s.day>7||!profile||typeof s.player.title!=='string'||!s.player.title.trim()||s.player.title.length>12)throw new Error('存档信息不完整');if(!Number.isSafeInteger(s.seed)||!Array.isArray(s.contacts)||!Array.isArray(s.messages)||!Array.isArray(s.feed)||!Array.isArray(s.ledger)||!Array.isArray(s.transactions)||!Array.isArray(s.evidenceItems)||!Array.isArray(s.memories)||!Array.isArray(s.skippedEchoes)||!Array.isArray(s.processedActionIds)||!Array.isArray(s.processedDialogueIds)||!Array.isArray(s.aiInteractions)||!s.flags||!s.decisions||!s.read||!s.postsByDay||!s.relationships||!s.wallet)throw new Error('存档结构不完整');
+  const expected=s.migratedFromVersion===3?legacyContactProfiles(s.seed):createContacts(s.seed,s.routeId),ids=expected.map(c=>c.id),allowed=new Set([...ids,'me']),contactKeys=['id','displayName','legalName','name','role','age','tier','personality','moneyPolicy','personaId','color','avatar','image','company'];if(s.contacts.length!==expected.length||new Set(s.contacts.map(c=>c.id)).size!==expected.length||s.contacts.some((c,i)=>!expected[i]||contactKeys.some(k=>c[k]!==expected[i][k])||JSON.stringify(c.identityTags)!==JSON.stringify(expected[i].identityTags)))throw new Error('联系人数据无效');for(const id of ids)for(const key of ['trust','respect','tension'])if(!Number.isFinite(s.relationships[id]?.[key])||s.relationships[id][key]<0||s.relationships[id][key]>100)throw new Error('关系数据无效');for(const key of scenario.statKeys)if(!Number.isFinite(s.company?.[key])||s.company[key]<0||s.company[key]>100)throw new Error('状态字段无效');if(Object.keys(s.company).some(key=>!scenario.statKeys.includes(key)))throw new Error('状态字段无效');validateStoryPrefix(s,scenario);validateFlagsAndEvidence(s,scenario);validateMessages(s,scenario,ids);validateFeed(s,scenario,allowed);validateProgressMetadata(s,ids);validateMemories(s,scenario,ids);validateAI(s,ids);validateLedger(s,scenario,profile);if(s.ending!==null){if(s.day!==7||activeEvent(s)||pendingIncoming(s).length||JSON.stringify(s.ending)!==JSON.stringify(endingFor(s)))throw new Error('结局数据无效');}else if(s.day===7&&!activeEvent(s)&&s.messages.some(m=>m.text.includes('这一周的回信已经放在')))throw new Error('结局数据缺失');
 }
 function validateStoryPrefix(s,scenario){
   const decisionKeys=Object.keys(s.decisions),expectedSkipped=scenario.events.filter(e=>e.echo&&e.day<=s.echoMigrationThroughDay).map(e=>e.id);
@@ -197,16 +239,27 @@ function validateStoryPrefix(s,scenario){
   }
 }
 function validateFlagsAndEvidence(s,scenario){const flags={},evidence=[];for(const ev of scenario.events){const choiceId=s.decisions[ev.id];if(!choiceId)continue;const ch=ev.choices.find(c=>c.id===choiceId);if(ch.flag)flags[ev.id]=ch.flag;if(ch.evidence&&!evidence.includes(ch.evidence))evidence.push(ch.evidence);}if(JSON.stringify(s.flags)!==JSON.stringify(flags)||JSON.stringify(s.evidenceItems)!==JSON.stringify(evidence))throw new Error('剧情标记无效');}
-function validateMessages(s,scenario,ids){if(s.messages.some(m=>m.transaction||m.eventId&&!scenario.events.some(e=>e.id===m.eventId)))throw new Error('消息引用无效');if(!Number.isSafeInteger(s.sequence)||s.sequence<0||s.messages.length!==s.sequence||s.messages.some((m,i)=>m.seq!==i+1||!ids.includes(m.contact)||!(m.from==='me'||m.from===m.contact)||typeof m.text!=='string'||!Number.isInteger(m.day)||m.day<1||m.day>s.day||typeof m.time!=='string'))throw new Error('消息数据无效');const current=activeEvent(s);for(const ev of scenario.events){const skipped=s.skippedEchoes.includes(ev.id),reached=!skipped&&(ev.day<s.day||Object.hasOwn(s.decisions,ev.id)||current?.id===ev.id),tagged=s.messages.filter(m=>m.eventId===ev.id);if(reached&&!tagged.some(m=>m.contact===ev.contact&&m.from===ev.contact&&m.day===ev.day))throw new Error('剧情消息前缀缺失');if(!reached&&tagged.length)throw new Error('剧情消息时间无效');}for(const m of s.messages)if(m.transactionId){const tx=s.transactions.find(t=>t.id===m.transactionId),expectedFrom=tx?.direction==='credit'?tx.contactId:'me';if(!tx||m.contact!==tx.contactId||m.from!==expectedFrom||m.text!==tx.note)throw new Error('交易消息无效');}for(const tx of s.transactions)if(s.messages.filter(m=>m.transactionId===tx.id).length!==1)throw new Error('交易消息缺失');}
-function validateFeed(s,scenario,allowed){const arts=new Set([null,'invite','lab','coffee','factory']),seen=new Set();if(s.feed.some(p=>seen.has(p.id)||!seen.add(p.id)||!allowed.has(p.author)||typeof p.text!=='string'||!arts.has(p.art??null)||typeof p.liked!=='boolean'||!Array.isArray(p.comments)||p.comments.some(c=>!allowed.has(c.author)||typeof c.text!=='string')||!Array.isArray(p.likes)||p.likes.some(id=>!allowed.has(id))))throw new Error('动态数据无效');for(let day=1;day<=s.day;day++)for(let i=0;i<scenario.feedSeeds[day-1].length;i++){const seed=scenario.feedSeeds[day-1][i],post=s.feed.find(item=>item.id===`f${day}-${i}`);if(!post||post.day!==day||post.author!==seed[0]||post.text!==seed[1]||post.art!==(seed[2]??null)||JSON.stringify(post.likes)!==JSON.stringify(seedLikes(scenario,i)))throw new Error('动态剧情前缀缺失');if(post.liked&&!post.likeRewarded)throw new Error('动态点赞状态无效');if(post.commented){const choice=scenario.socialComments.find(c=>post.comments.length===2&&post.comments[0].author==='me'&&post.comments[0].text===c.text&&post.comments[1].author===post.author&&post.comments[1].text===c.reply);if(!choice)throw new Error('动态评论状态无效');}else if(post.comments.length)throw new Error('动态评论状态无效');}const postDays=Object.keys(s.postsByDay);if(postDays.some(key=>!Number.isInteger(Number(key))||Number(key)<1||Number(key)>s.day))throw new Error('发表动态记录无效');for(const key of postDays){const day=Number(key),template=scenario.playerPosts.find(p=>p.id===s.postsByDay[key]),post=s.feed.find(p=>p.id===`own-${day}`);if(!template||!post||post.author!=='me'||post.day!==day||post.text!==template.text||post.art!==null||post.liked||post.commented||JSON.stringify(post.likes)!==JSON.stringify([scenario.guideId,template.contact])||post.comments.length!==1||post.comments[0].author!==template.contact||post.comments[0].text!==template.reply)throw new Error('发表动态数据无效');}if(s.feed.length!==s.day*2+postDays.length)throw new Error('动态数量无效');}
+function validateMessages(s,scenario,ids){if(s.messages.some(m=>m.transaction||m.eventId&&!scenario.events.some(e=>e.id===m.eventId)))throw new Error('消息引用无效');if(!Number.isSafeInteger(s.sequence)||s.sequence<0||s.messages.length!==s.sequence||s.messages.some((m,i)=>m.seq!==i+1||!ids.includes(m.contact)||!(m.from==='me'||m.from===m.contact)||typeof m.text!=='string'||!Number.isInteger(m.day)||m.day<1||m.day>s.day||typeof m.time!=='string'))throw new Error('消息数据无效');const current=activeEvent(s);for(const ev of scenario.events){const skipped=s.skippedEchoes.includes(ev.id),reached=!skipped&&(ev.day<s.day||Object.hasOwn(s.decisions,ev.id)||current?.id===ev.id),tagged=s.messages.filter(m=>m.eventId===ev.id);if(reached&&!tagged.some(m=>m.contact===ev.contact&&m.from===ev.contact&&m.day===ev.day))throw new Error('剧情消息前缀缺失');if(!reached&&tagged.length)throw new Error('剧情消息时间无效');}for(const m of s.messages)if(m.transactionId){const tx=s.transactions.find(t=>t.id===m.transactionId),expectedFrom=tx?.direction==='credit'?tx.contactId:'me';if(!tx||m.contact!==tx.contactId||m.from!==expectedFrom||m.text!==tx.note)throw new Error('交易消息无效');}for(const tx of s.transactions)if(s.messages.filter(m=>m.transactionId===tx.id).length!==1)throw new Error('交易消息缺失');for(const requestId of s.processedDialogueIds){const messages=s.messages.filter(m=>m.requestId===requestId);if(messages.filter(m=>m.source==='player-free').length!==1||!messages.some(m=>m.source==='ai'||m.source==='local-fallback'))throw new Error('自由聊天消息缺失');}}
+function validateFeed(s,scenario,allowed){const arts=new Set([null,'invite','lab','coffee','factory']),seen=new Set();if(s.feed.some(p=>seen.has(p.id)||!seen.add(p.id)||!allowed.has(p.author)||typeof p.text!=='string'||!arts.has(p.art??null)||typeof p.liked!=='boolean'||!Array.isArray(p.comments)||p.comments.some(c=>!allowed.has(c.author)||typeof c.text!=='string')||!Array.isArray(p.likes)||p.likes.some(id=>!allowed.has(id))))throw new Error('动态数据无效');for(let day=1;day<=s.day;day++)for(let i=0;i<scenario.feedSeeds[day-1].length;i++){const seed=scenario.feedSeeds[day-1][i],post=s.feed.find(item=>item.id===`f${day}-${i}`);if(!post||post.day!==day||post.author!==seed[0]||post.text!==seed[1]||post.art!==(seed[2]??null)||JSON.stringify(post.likes)!==JSON.stringify(seedLikes(scenario,i)))throw new Error('动态剧情前缀缺失');}const expectedHistory=historicalPosts(s),expectedEcho=[];for(let day=1;day<=s.day;day++){const original=s.day;s.day=day;expectedEcho.push(...echoPostsForDay(s));s.day=original;}for(const expected of [...expectedHistory,...expectedEcho]){const post=s.feed.find(item=>item.id===expected.id);if(!post||post.day!==expected.day||post.author!==expected.author||post.text!==expected.text||post.art!==expected.art||post.time!==expected.time||JSON.stringify(post.likes)!==JSON.stringify(expected.likes))throw new Error('人物动态缺失');}for(const post of s.feed.filter(p=>p.author!=='me')){if(post.liked&&!post.likeRewarded)throw new Error('动态点赞状态无效');if(post.commented){const choice=scenario.socialComments.find(c=>post.comments.length===2&&post.comments[0].author==='me'&&post.comments[0].text===c.text&&post.comments[1].author===post.author&&post.comments[1].text===c.reply);if(!choice)throw new Error('动态评论状态无效');}else if(post.comments.length)throw new Error('动态评论状态无效');}const postDays=Object.keys(s.postsByDay);if(postDays.some(key=>!Number.isInteger(Number(key))||Number(key)<1||Number(key)>s.day))throw new Error('发表动态记录无效');for(const key of postDays){const day=Number(key),template=scenario.playerPosts.find(p=>p.id===s.postsByDay[key]),post=s.feed.find(p=>p.id===`own-${day}`);if(!template||!post||post.author!=='me'||post.day!==day||post.text!==template.text||post.art!==null||post.liked||post.commented||JSON.stringify(post.likes)!==JSON.stringify([scenario.guideId,template.contact])||post.comments.length!==1||post.comments[0].author!==template.contact||post.comments[0].text!==template.reply)throw new Error('发表动态数据无效');}const scriptedCount=scenario.feedSeeds.slice(0,s.day).reduce((n,items)=>n+items.length,0);if(s.feed.length!==36+expectedEcho.length+scriptedCount+postDays.length)throw new Error('动态数量无效');}
 function validateProgressMetadata(s,ids){if(!Number.isInteger(s.feedSeenDay)||s.feedSeenDay<0||s.feedSeenDay>s.day)throw new Error('动态阅读记录无效');if(Object.keys(s.read).some(id=>!ids.includes(id))||Object.values(s.read).some(seq=>!Number.isSafeInteger(seq)||seq<0||seq>s.sequence))throw new Error('消息阅读记录无效');}
 function validateMemories(s,scenario,ids){
-  if(new Set(s.memories.map(m=>m.id)).size!==s.memories.length||s.memories.some((m,i)=>!ids.includes(m.contactId)||!['choice','money','social'].includes(m.sourceType)||!['kept','hurt','noted'].includes(m.tone)||typeof m.sourceId!=='string'||typeof m.summary!=='string'||!m.summary||m.summary.length>120||!Number.isInteger(m.day)||m.day<1||m.day>s.day||(i&&m.day<s.memories[i-1].day)))throw new Error('人物记忆无效');
+  if(new Set(s.memories.map(m=>m.id)).size!==s.memories.length||s.memories.some((m,i)=>!ids.includes(m.contactId)||!['choice','money','social','ai'].includes(m.sourceType)||!['kept','hurt','noted'].includes(m.tone)||typeof m.sourceId!=='string'||typeof m.summary!=='string'||!m.summary||m.summary.length>120||!Number.isInteger(m.day)||m.day<1||m.day>s.day||(i&&m.day<s.memories[i-1].day)))throw new Error('人物记忆无效');
   for(const [eventId,choiceId] of Object.entries(s.decisions)){const ev=scenario.events.find(e=>e.id===eventId),ch=ev.choices.find(c=>c.id===choiceId),memory=s.memories.find(m=>m.id===`choice:${eventId}`),expected={id:`choice:${ev.id}`,contactId:ev.contact,sourceType:'choice',sourceId:ev.id,day:ev.day,tone:memoryTone(ch.effects.relation),summary:String(ch.memory||`${ev.topic}：${ch.text}`).slice(0,120)};if(JSON.stringify(memory)!==JSON.stringify(expected))throw new Error('剧情记忆无效');}
   for(const tx of s.transactions.filter(t=>t.source==='free'||t.source==='incoming'&&t.status!=='pending')){const m=s.memories.find(m=>m.id===`money:${tx.id}`);if(!m||m.contactId!==tx.contactId||m.sourceType!=='money'||m.sourceId!==tx.id||m.day!==tx.day)throw new Error('交易记忆无效');}
   for(const m of s.memories.filter(m=>m.sourceType==='choice'))if(!Object.hasOwn(s.decisions,m.sourceId))throw new Error('孤立剧情记忆');
   for(const m of s.memories.filter(m=>m.sourceType==='money'))if(!s.transactions.some(t=>t.id===m.sourceId&&(t.source==='free'||t.source==='incoming'&&t.status!=='pending')))throw new Error('孤立交易记忆');
   for(const m of s.memories.filter(m=>m.sourceType==='social'))if(!s.feed.some(p=>p.id===m.sourceId)||!(m.id===`social:like:${m.sourceId}`||m.id===`social:comment:${m.sourceId}`||m.id.startsWith('social:post:')))throw new Error('动态记忆无效');
+  for(const m of s.memories.filter(m=>m.sourceType==='ai'))if(!s.aiInteractions.some(item=>item.requestId===m.sourceId&&item.contactId===m.contactId&&item.memoryApplied))throw new Error('自由聊天记忆无效');
+}
+function validateAI(s,ids){
+  if(new Set(s.processedDialogueIds).size!==s.processedDialogueIds.length||s.aiInteractions.length!==s.processedDialogueIds.length||new Set(s.aiInteractions.map(item=>item.requestId)).size!==s.aiInteractions.length)throw new Error('自由聊天记录重复');
+  const scenario=scenarioOf(s);
+  for(const item of s.aiInteractions){
+    if(!s.processedDialogueIds.includes(item.requestId)||!/^[a-zA-Z0-9._:-]{8,80}$/.test(item.requestId)||!ids.includes(item.contactId)||!Number.isInteger(item.day)||item.day<1||item.day>s.day||!REACTION_TYPES.includes(item.reactionType)||!MEMORY_SIGNALS.includes(item.memorySignal)||typeof item.emotion!=='string'||item.emotion.length>24||item.memoryApplied!==false||typeof item.fallback!=='boolean')throw new Error('自由聊天记录无效');
+    const ev=item.intentEventId===null?null:scenario.events.find(e=>e.id===item.intentEventId);
+    if((item.intentEventId===null)!==(item.intentChoiceId===null)||item.intentEventId!==null&&(!ev||ev.day!==item.day||ev.contact!==item.contactId||!ev.choices.some(c=>c.id===item.intentChoiceId)))throw new Error('自由聊天剧情意图无效');
+    if(s.memories.some(m=>m.id==='ai:'+item.requestId))throw new Error('自由聊天记忆无效');
+  }
 }
 function validateLedger(s,scenario,profile){
   const expectedOpening=s.migratedFromVersion===3?OPENING_BALANCE_CENTS:profile.openingBalanceCents;

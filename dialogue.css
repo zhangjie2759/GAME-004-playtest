@@ -1,0 +1,13 @@
+.compose-input{font:inherit;font-size:16px;resize:none;flex:1;min-width:0;max-height:100px;min-height:44px;border:0;border-radius:6px;padding:11px;background:#fff;line-height:22px}
+.send-button{min-height:44px;min-width:52px;border-radius:5px;background:#07c160;color:white;padding:8px}
+.cancel-send{background:#ddd;color:#444}
+.ai-mode{font-size:11px;text-align:center;color:#888;padding:0 8px 6px}
+.ai-mode:empty{display:none}
+.typing-message small{display:block;font-size:12px;color:#888}
+.typing-dots{letter-spacing:4px;animation:typing 1.4s ease-in-out infinite}
+.conversation-topic{font-size:12px;padding:8px 15px;color:#888}
+.payment-reminder{margin:10px 14px;padding:11px 12px;border:1px solid #e5d3ae;border-radius:8px;background:#fffaf0;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:#6c4c13}
+.payment-reminder button{padding:7px 10px;border-radius:5px;background:#8a6a31;color:white;white-space:nowrap}
+.archived-composer{text-align:center;padding:16px;color:#888}
+@keyframes typing{50%{opacity:.3}}
+@media(prefers-reduced-motion:reduce){.typing-dots{animation:none}}

@@ -1,59 +1,29 @@
-# AI 与角色扩展接口（v0.2 未连接真实模型）
+# GAME-004 v0.3 对话 API 接口
 
-界面运行预设分支对白，关系、剧情和钱包只有 engine.mjs 的 dispatch() 可以修改。真实模型不能直接修改 GameState，也不能自动创建收款人或账单。
+目前手机输入框已接入 `SEND_FREE_MESSAGE`，本地脚本负责离线回复。真实模型未启用，页面会显示“离线演示”。钱包、证据、人物关系、剧情和结局均由 `engine.mjs` 的 `dispatch()` 决定。
 
-## 已预留的异步入口
+## 将来接入国内模型
 
-dialogue-provider.mjs 导出：
+浏览器只调用你自己的 HTTPS 服务，不直接连接百炼，也不保存模型密钥。服务端把密钥放入环境变量或云平台 Secret，调用对应地域的模型 API；公开仓库和浏览器代码里不能出现密钥。先在百炼控制台确认地域和免费额度，再决定模型及服务部署地址。
 
-- buildDialogueContext(state, contactId, confirmedMoneyDraft?)：构建当前路线、人物标签、联系人公开资料、最近12条聊天、公开人物记忆、待处理红包、当前事项与允许动作；不发送隐藏关系或经营数值。
-- scriptedAsyncProvider.propose(context)：异步脚本 Provider。
-- validateDialogueProposal(value, context)：校验1–4句对白及允许的动作。
-- requestDialogue(provider, context, { signal, timeoutMs })：默认8秒超时，失败或无效返回时降级脚本；用户取消时结束请求。
+前端开关位于 `ai-config.mjs`：将 `enabled` 设为 `true`，并把 `dialogueEndpoint` 设置为自有服务的完整 HTTPS 地址。部署时同步将 `index.html` 的 CSP `connect-src` 从 `'none'` 改为仅允许该精确服务域名。静态 GitHub Pages 无法自行保管密钥或提供这个服务。
 
-api-provider.example.mjs 提供同一 propose() 接口的 HTTPS 后端客户端。示例不在 app.mjs 中启用，没有任何模型密钥或外部请求。
+`remote-dialogue-client.mjs` 通过 POST 把 `buildDialogueContext(state, contactId, null, userMessage)` 的 JSON 发给服务端，且不携带浏览器凭据。服务端应验证来源、限制频率和请求大小，并实现会话验证；不能相信浏览器传来的游戏状态来记账。`requestDialogue()` 在超时、网络错误和无效结构时使用本地角色回复。用户取消时应立即停止等待。
 
-后续接入示意：
+请求 `schema` 为 `game004.dialogue.v4`，包含路线、玩家标签、固定角色人设、近 12 条聊天、公开人物记忆、近期动态、当前事项以及 `allowedIntents`。不包含隐藏关系分数或钱包内部可写状态。服务端返回示例：
 
-~~~js
-import {buildDialogueContext, requestDialogue} from './dialogue-provider.mjs';
-import {createRemoteDialogueClient} from './api-provider.example.mjs';
-
-const client = createRemoteDialogueClient({endpoint:'https://your-backend.example/v1/dialogue'});
-const eventId = activeEvent(game)?.id;
-const context = buildDialogueContext(game, contactId);
-const result = await requestDialogue(client, context, {signal:controller.signal});
-// 先确认当前路线、联系人和 eventId 没有改变，再显示 result.lines。
-// result.intent 仍需玩家确认，然后才交给 dispatch(game, result.intent)。
-~~~
-
-后端接收 schema = game004.dialogue.v3，返回：
-
-~~~json
+```json
 {
-  "lines": ["收到，我把原始记录按时间整理给你。"],
-  "intent": {"type":"CHOOSE","eventId":"w1-task","choiceId":"a"}
+  "replyLines": ["我先核对原始记录，再给您一个明确时间。"],
+  "reactionType": "understood",
+  "emotion": "guarded",
+  "memorySignal": "none",
+  "proposedIntentId": "intent-1"
 }
-~~~
+```
 
-返回意图必须与 allowedIntents 中一项逐字段相等。SEND_MONEY 只在玩家已经确认的金额、方式、联系人、备注和 clientActionId 被显式加入允许列表时可提议；SETTLE_INCOMING_MONEY 也只能复用玩家刚刚确认的交易编号、领取/退还决定和请求编号。模型不能自行生成金额或改变关系。所有意图仍由 dispatch() 再检查当前剧情、余额与幂等记录。
+`replyLines` 需为 1–4 句，每句不超过 300 字。`reactionType`、`memorySignal` 和意图 ID 必须经过 `validateDialogueProposal()` 白名单校验。模型不能生成新的联系人、交易金额或状态效果。`proposedIntentId` 必须是本次请求 `allowedIntents` 中的 ID；最终动作仍由 `dispatch()` 检查当日事件、联系人、余额和幂等编号。涉及剧情款项时前端先显示金额确认，玩家确认后才执行。模型提出的记忆信号当前仅记录，不独立改关系；未来如需生效，必须增加可验证的规则依据。
 
-正式启用还需：自有后端保存密钥；在 UI 增加等待/取消与过期回应丢弃；将 CSP 的 connect-src 限定到精确后端域名；为模型内容增加审核和速率限制。当前接口是经过测试的接入边界，不代表真实 AI 功能已上线。
+全部角色位于 `personas.mjs`，使用稳定的路线与联系人 ID。增加角色时在 `content.mjs` 登记稳定 ID、成年年龄、网名、职业和头像路径，并在 `personas.mjs` 补全人格与朋友圈；模型不能临时创造可交互联系人。
 
-## 增加角色或路线
-
-content.mjs 的 SCENARIOS 是路线注册表，分别维护核心事件、6个跨日关系回响、动态、社交模板、日程、隐藏状态键和引导联系人。PERSONAS 记录路线所属人设、初始余额和状态。
-
-新增角色时在相应角色模板增加稳定 ID、displayName、legalName、职业、成年年龄、性格、identityTags 与 moneyPolicy。显示名应混用网名、职位、企业前缀和熟人称呼。补充头像路径、事件或动态作者，并调整该路线联系人数量测试与迁移。不要让模型临时发明联系人 ID。
-
-moneyPolicy 分为 social（收红包）、business（收转账）、formal（主动来款退还）。该策略只影响自由交易，剧情款项按内容规则处理。
-
-新增路线需要同时登记 SCENARIOS、ROUTES、人物预设，以及 engine.mjs 中对应的结局判定和必要存档迁移。新增隐藏状态只能通过规则层 effects() 提交。
-
-## 存档与付款约束
-
-v5 保留原存档键 game004.chairman.v1。v1/v2/v3/v4 逐级迁移；旧局保留原始余额、姓名、选择和聊天，不会倒播已经过去的关系回响。原 underdog 映射为董事长 / 白手起家；重新开始才进入真正的牛马路线。
-
-transactions 是交易事实，messages 只引用 transactionId；ledger 为借贷明细。玩家发出后被退还是同笔交易下的支出和关联退款；NPC待领取红包没有流水，领取后才生成收入，直接退还不生成虚假收支。钱包必须等于初始余额＋收入－支出。重复动作 ID、缺失交易卡、孤立流水和无法匹配剧情的存档会进入恢复页。
-
-纯前端原型能识别结构矛盾和重复操作，不能提供服务器或密码学级的防篡改保证。
+存档键仍为 `game004.chairman.v1`，内容版本为 v6。旧版本顺序迁移，异常存档进入恢复页，不静默覆盖。此版本是原型，仍需在 Jay 手机上确认对话真实感和剧情节奏。

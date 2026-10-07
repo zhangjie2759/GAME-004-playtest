@@ -1,4 +1,7 @@
 // Authored fiction. Content proposes effects; only engine.mjs commits them.
+import {personaProfileFor,personaFeedsFor,historicalFeedSeeds,echoFeedSeeds,allPersonaFixtures,PERSONA_PROFILES,PERSONA_FEEDS,REACTION_TYPES,MEMORY_SIGNALS} from './personas.mjs';
+export {personaProfileFor,personaFeedsFor,historicalFeedSeeds,echoFeedSeeds,allPersonaFixtures,PERSONA_PROFILES,PERSONA_FEEDS,REACTION_TYPES,MEMORY_SIGNALS};
+
 export const COMPANY = '澄屿科技';
 export const PRODUCT = '拾光一号';
 export const DAYS = ['发布倒计时', '预算的另一面', '供应链来电', '那张截图', '风向变了', '最后的筹码', '聚光灯下'];
@@ -52,7 +55,7 @@ const workerAvatarMap={manager:'gm',boss:'investor',hr:'hr',finance:'finance',pr
 export function createContacts(seed = 4107,routeId='chairman') {
   const source=routeId==='worker'?workerRoles:chairmanRoles,shift=Math.abs(seed|0)%source.length;
   return source.map(([id,displayName,legalName,role,age,tier,personality,moneyPolicy],i)=>({
-    id,displayName,legalName,name:displayName,role,age,tier,personality,moneyPolicy,identityTags:[role,tier,moneyPolicy],
+    id,displayName,legalName,name:displayName,role,age,tier,personality,moneyPolicy,personaId:`${routeId}:${id}`,identityTags:[role,tier,moneyPolicy],
     color:palette[(i+shift)%palette.length],avatar:(i+shift)%4,image:`./assets/avatars/${routeId==='worker'?workerAvatarMap[id]:id}.png`,
     company:(routeId==='worker'?workerCompanies[id]:'')||(routeId==='chairman'?chairmanCompanies[id]:'')||(routeId==='worker'?'飞桥互联':COMPANY),
   }));

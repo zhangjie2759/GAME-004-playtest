@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {access,readFile} from 'node:fs/promises';
-import {SCENARIOS,PERSONAS,createContacts,provider} from './content.mjs';
+import {SCENARIOS,PERSONAS,createContacts,provider,allPersonaFixtures} from './content.mjs';
 import {buildDialogueContext,validateDialogueProposal,requestDialogue,scriptedAsyncProvider} from './dialogue-provider.mjs';
 import {createGame,dispatch,activeEvent,endingFor,saveGame,loadGame,clearGame,SAVE_KEY,SAVE_VERSION,OPENING_BALANCE_CENTS,parseAmountCents} from './engine.mjs';
 
@@ -11,15 +11,44 @@ test('async API seam excludes hidden state and rejects unauthorized money intent
   const s=createGame({routeId:'worker',identityPresetId:'worker'}),context=buildDialogueContext(s,'manager');
   assert.equal(context.routeId,'worker');assert.ok(context.contact.identityTags.length);
   assert.ok(!JSON.stringify(context).includes('"relationships"'));assert.ok(!JSON.stringify(context).includes('"company":{"evidence"'));
-  const valid={lines:['收到，按记录核验。'],intent:context.allowedIntents[0]};
-  assert.deepEqual(validateDialogueProposal(valid,context),valid);
+  const valid={replyLines:['收到，按记录核验。'],reactionType:'understood',emotion:'guarded',memorySignal:'none',proposedIntentId:context.allowedIntents[0].id};
+  assert.deepEqual(validateDialogueProposal(valid,context),{...valid,intent:context.allowedIntents[0].action});
   assert.throws(()=>validateDialogueProposal({lines:['已付款'],intent:{type:'SEND_MONEY',amountCents:999999}},context));
-  assert.throws(()=>validateDialogueProposal({lines:['x'],intent:{...context.allowedIntents[0],effects:{evidence:100}}},context));
+  assert.throws(()=>validateDialogueProposal({lines:['x'],intent:{...context.allowedIntents[0].action,effects:{evidence:100}}},context));
   const bad={async propose(){return {lines:[],intent:null};}};
   assert.equal((await requestDialogue(bad,context)).fallback,true);
   assert.equal((await requestDialogue(scriptedAsyncProvider,context)).fallback,false);
   assert.equal((await requestDialogue({propose(){return new Promise(()=>{});}},context,{timeoutMs:10})).fallback,true);
+  const cancelled=new AbortController(),stalled=requestDialogue({propose(){return new Promise(()=>{});}},context,{signal:cancelled.signal,timeoutMs:1000});cancelled.abort();await assert.rejects(stalled,{name:'AbortError'});
   const snapshot=JSON.stringify(s);await requestDialogue(scriptedAsyncProvider,context);assert.equal(JSON.stringify(s),snapshot);
+});
+test('typed dialogue advances only a clear active story intent and survives reload',async()=>{
+  for(const routeId of ['chairman','worker']){
+    const initial=createGame({routeId,identityPresetId:routeId==='worker'?'worker':'tycoon'}),event=activeEvent(initial),text=event.choices[0].text;
+    const context=buildDialogueContext(initial,event.contact,null,text),proposal=validateDialogueProposal(await scriptedAsyncProvider.propose(context),context);
+    assert.equal(proposal.proposedIntentId,context.allowedIntents[0].id);
+    const requestId=`typed-${routeId}-0001`,result=dispatch(initial,{type:'SEND_FREE_MESSAGE',contactId:event.contact,text,requestId,reply:{...proposal,fallback:true}});
+    assert.equal(result.error,null);assert.equal(result.state.decisions[event.id],event.choices[0].id);
+    assert.equal(result.state.messages.filter(m=>m.from==='me'&&m.text===text).length,1);
+    assert.equal(loadGame({getItem:()=>JSON.stringify(result.state)}).blocked,undefined);
+    assert.equal(dispatch(result.state,{type:'SEND_FREE_MESSAGE',contactId:event.contact,text,requestId,reply:proposal}).error!==null,true);
+    const unclear=await scriptedAsyncProvider.propose(buildDialogueContext(initial,event.contact,null,'随便'));
+    assert.equal(unclear.proposedIntentId,null);assert.equal(unclear.reactionType,'needs_clarification');
+  }
+});
+test('published v5 saves gain persona feeds without losing progress or wallet',()=>{
+  const current=createGame({routeId:'worker',identityPresetId:'worker'}),ev=activeEvent(current),played=dispatch(current,{type:'CHOOSE',eventId:ev.id,choiceId:ev.choices[0].id}).state;
+  const old=structuredClone(played);old.version=5;old.contacts.forEach(c=>delete c.personaId);delete old.processedDialogueIds;delete old.aiInteractions;old.feed=old.feed.filter(p=>p.kind!=='history'&&p.kind!=='persona-echo');
+  const result=loadGame({getItem:()=>JSON.stringify(old)});assert.equal(result.error,null);assert.equal(result.state.version,SAVE_VERSION);
+  assert.equal(result.state.decisions[ev.id],ev.choices[0].id);assert.equal(result.state.wallet.balanceCents,played.wallet.balanceCents);
+  assert.ok(result.state.feed.filter(p=>p.kind==='history').length>=36);
+});
+test('all 24 adult contacts have distinct persona records and four authored posts',()=>{
+  const fixtures=allPersonaFixtures();assert.equal(fixtures.length,24);
+  const required=['publicBio','socialMask','privateMotivation','goal','values','pressurePoints','secretBoundary','speechStyle','moneyAttitude','relationshipRules','feedVoice','fallbackReactions'];
+  const texts=[];
+  for(const {profile,posts} of fixtures){assert.ok(required.every(key=>profile[key]));assert.equal(posts.length,4);assert.equal(posts.filter(p=>p.kind==='history').length,3);assert.equal(posts.filter(p=>p.kind==='echo').length,1);texts.push(...posts.map(p=>p.text));}
+  assert.equal(new Set(texts).size,96);
 });
 const start=routeId=>createGame({routeId,identityPresetId:routeId==='worker'?'worker':'tycoon'});
 const apply=(s,a)=>{const r=dispatch(s,a);assert.equal(r.error,null,JSON.stringify(a));return r.state;};
@@ -36,10 +65,41 @@ function run(routeId,select=()=> 'a',social=false,settle=settleChoice){
     assert.equal(restored(s).error,null);
   }return s;
 }
+test('typed input alone completes all 27 story events on each route',async()=>{
+  for(const routeId of ['chairman','worker']){
+    let s=start(routeId),handled=0,turn=0;
+    while(!s.ending){
+      assert.ok(++turn<70,`${routeId} stalled`);
+      const incoming=s.transactions.find(t=>t.source==='incoming'&&t.status==='pending'),ev=activeEvent(s);
+      if(incoming){s=apply(s,{type:'SETTLE_INCOMING_MONEY',transactionId:incoming.id,decision:settleChoice(incoming),clientActionId:`typed-settle-${incoming.id}`});continue;}
+      if(!ev){s=apply(s,{type:'NEXT_DAY'});continue;}
+      const choice=ev.choices[0],text=choice.text,requestId=`typed-route-${routeId}-${String(++handled).padStart(3,'0')}`;
+      const context=buildDialogueContext(s,ev.contact,null,text),reply=validateDialogueProposal(await scriptedAsyncProvider.propose(context),context);
+      assert.equal(reply.intent?.choiceId,choice.id,`${routeId}:${ev.id} offline recognition`);
+      s=apply(s,{type:'SEND_FREE_MESSAGE',contactId:ev.contact,text,requestId,reply:{...reply,fallback:true}});
+      if(choice.kind)s=apply(s,{type:'RESOLVE_DIALOGUE_INTENT',requestId,choiceId:choice.id});
+      assert.equal(s.decisions[ev.id],choice.id,`${routeId}:${ev.id} not advanced`);
+      assert.equal(restored(s).error,null,`${routeId}:${ev.id} reload`);
+    }
+    assert.equal(handled,27);
+  }
+});
 function free(s,{mode='packet',contactId=s.routeId==='worker'?'coworker':'designer',amountCents=100,note='辛苦了',clientActionId='test-request-0001'}={}){
   return apply(s,{type:'SEND_MONEY',mode,contactId,amountCents,note,clientActionId});
 }
 function advanceTo(s,eventId){while(activeEvent(s)?.id!==eventId){const incoming=s.transactions.find(t=>t.source==='incoming'&&t.status==='pending'),e=activeEvent(s);s=incoming?apply(s,{type:'SETTLE_INCOMING_MONEY',transactionId:incoming.id,decision:settleChoice(incoming),clientActionId:`advance-${incoming.id}`}):apply(s,e?{type:'CHOOSE',eventId:e.id,choiceId:'a'}:{type:'NEXT_DAY'});}return s;}
+test('typed story payment stays pending through reload until confirmed exactly once',async()=>{
+  const initial=advanceTo(start('chairman'),'d2-budget'),ev=activeEvent(initial),choice=ev.choices.find(c=>c.kind);
+  const context=buildDialogueContext(initial,ev.contact,null,choice.text),reply=validateDialogueProposal(await scriptedAsyncProvider.propose(context),context);
+  const requestId='typed-payment-check-001',pending=apply(initial,{type:'SEND_FREE_MESSAGE',contactId:ev.contact,text:choice.text,requestId,reply:{...reply,fallback:true}});
+  assert.equal(pending.decisions[ev.id],undefined);assert.equal(pending.wallet.balanceCents,initial.wallet.balanceCents);
+  assert.equal(restored(pending).error,null);
+  const settled=apply(restored(pending).state,{type:'RESOLVE_DIALOGUE_INTENT',requestId,choiceId:choice.id});
+  assert.equal(settled.decisions[ev.id],choice.id);assert.equal(settled.wallet.balanceCents,initial.wallet.balanceCents-choice.amount*100);
+  assert.equal(settled.messages.filter(m=>m.from==='me'&&m.text===choice.text).length,1);
+  assert.ok(dispatch(settled,{type:'RESOLVE_DIALOGUE_INTENT',requestId,choiceId:choice.id}).error);
+  assert.equal(restored(settled).error,null);
+});
 function legacy(s,version=3){
   const copy=structuredClone(s),first=['林','陈','周','许','沈','顾','方','陆','苏','程','徐','叶'],given=['砚舟','知远','予安','景和','以宁','清禾','允诚','书衡','若岚','子衡','明舒','知夏'],shift=Math.abs(s.seed|0)%12;
   const echoIds=new Set(SCENARIOS.chairman.echoIds),incomingIds=new Set(copy.transactions.filter(t=>t.source==='incoming').map(t=>t.id));
@@ -181,7 +241,7 @@ test('v4 saves migrate without replaying past relationship echoes',()=>{
 test('incoming packets can be claimed or returned exactly once',()=>{
   let claim=advanceTo(start('worker'),'w3-echo-lunch'),before=claim.wallet.balanceCents;claim=apply(claim,{type:'CHOOSE',eventId:'w3-echo-lunch',choiceId:'a'});
   const offer=claim.transactions.find(t=>t.id==='tx-incoming-w3-echo-lunch');assert.equal(offer.status,'pending');assert.equal(claim.wallet.balanceCents,before);
-  const draft={type:'SETTLE_INCOMING_MONEY',contactId:'coworker',transactionId:offer.id,decision:'claim',clientActionId:'claim-packet-api1'},context=buildDialogueContext(claim,'coworker',draft);assert.equal(context.pendingIncoming.length,1);assert.deepEqual(context.allowedIntents.at(-1),Object.fromEntries(Object.entries(draft).filter(([key])=>key!=='contactId')));
+  const draft={type:'SETTLE_INCOMING_MONEY',contactId:'coworker',transactionId:offer.id,decision:'claim',clientActionId:'claim-packet-api1'},context=buildDialogueContext(claim,'coworker',draft);assert.equal(context.pendingIncoming.length,1);assert.deepEqual(context.allowedIntents.at(-1).action,Object.fromEntries(Object.entries(draft).filter(([key])=>key!=='contactId')));
   claim=apply(claim,{type:'SETTLE_INCOMING_MONEY',transactionId:offer.id,decision:'claim',clientActionId:'claim-packet-0001'});assert.equal(claim.wallet.balanceCents,before+1888);assert.equal(claim.ledger.at(-1).direction,'credit');assert.equal(restored(claim).error,null);
   for(const bad of [{type:'SETTLE_INCOMING_MONEY',transactionId:offer.id,decision:'claim',clientActionId:'claim-packet-0002'},{type:'SETTLE_INCOMING_MONEY',transactionId:'missing',decision:'claim',clientActionId:'claim-packet-0003'}])assert.ok(dispatch(claim,bad).error);
   let returned=advanceTo(start('worker'),'w6-echo-boundary');returned=apply(returned,{type:'CHOOSE',eventId:'w6-echo-boundary',choiceId:'a'});const hush=returned.transactions.find(t=>t.id==='tx-incoming-w6-echo-boundary'),balance=returned.wallet.balanceCents,ledgerCount=returned.ledger.length;
